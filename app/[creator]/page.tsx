@@ -1,102 +1,132 @@
-    'use client';
+'use client';
 
-    import { useAccount } from 'wagmi';
-    import { useParams } from 'next/navigation';
-    import { useEffect, useState } from 'react';
-    import { Transaction, TransactionButton, TransactionStatus, TransactionStatusLabel, TransactionStatusAction } from '@coinbase/onchainkit/transaction';
-    import { base } from 'viem/chains';
-    import { encodeFunctionData, parseUnits } from 'viem';
-    import { supabase } from '@/lib/supabase';
-    import { Button } from '../components/Button';
-    import { Input } from '../components/Input';
-    import { Card } from '../components/Card';
-    import { Typography } from '../components/Typography';
-    import { Avatar } from '../components/Avatar';
+import { useAccount } from 'wagmi';
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { Transaction, TransactionButton, TransactionStatus, TransactionStatusLabel, TransactionStatusAction } from '@coinbase/onchainkit/transaction';
+import { base } from 'viem/chains';
+import { supabase } from '@/lib/supabase';
+import { Button } from '../components/Button';
+import { Input } from '../components/Input';
+import { Card } from '../components/Card';
+import { Typography } from '../components/Typography';
+import { Avatar } from '../components/Avatar';
+import { createUSDCTransferCall } from '@/lib/transactions';
 
-    // USDC contract on Base
-    const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-    const USDC_DECIMALS = 6;
+export default function CreatorProfile() {
+  const params = useParams();
+  const router = useRouter();
+  const vanityUrl = params.creator as string;
+  const { address: senderAddress, isConnected } = useAccount();
+  const [profile, setProfile] = useState<{ displayName: string; bio: string; creatorAddress: string } | null>(null);
+  const [amount, setAmount] = useState('');
+  const [message, setMessage] = useState('');
+  const [customAmount, setCustomAmount] = useState(false);
+  const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
+  const [loading, setLoading] = useState(true);
+  const [tipSent, setTipSent] = useState(false);
 
-    export default function CreatorProfile() {
-      const params = useParams();
-      const vanityUrl = params.creator as string;
-      const { address: senderAddress } = useAccount();
-      const [profile, setProfile] = useState<{ displayName: string; bio: string; creatorAddress: string } | null>(null);
-      const [amount, setAmount] = useState('');
-      const [message, setMessage] = useState('');
-      const [customAmount, setCustomAmount] = useState(false);
-      const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
-      const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    fetchProfile(vanityUrl);
+  }, [vanityUrl]);
 
-      useEffect(() => {
-        fetchProfile(vanityUrl);
-      }, [vanityUrl]);
+  const fetchProfile = async (url: string) => {
+    try {
+      const { data: profileData } = await supabase
+        .from('creator_profiles')
+        .select('*, users(baseWalletAddress)')
+        .eq('vanityUrl', url)
+        .single();
+        
+      if (profileData) {
+        setProfile({
+          displayName: profileData.displayName,
+          bio: profileData.bio,
+          creatorAddress: profileData.users.baseWalletAddress,
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+    }
+    setLoading(false);
+  };
 
-      const fetchProfile = async (url: string) => {
-        const { data: profileData } = await supabase.from('creator_profiles').select('*, users(baseWalletAddress)').eq('vanityUrl', url).single();
-        if (profileData) {
-          setProfile({
-            displayName: profileData.displayName,
-            bio: profileData.bio,
-            creatorAddress: profileData.users.baseWalletAddress,
-          });
-        }
-        setLoading(false);
-      };
+  const handleTip = async (tipAmount: number) => {
+    if (!profile || !senderAddress) return;
 
-      const handleTip = async (tipAmount: number) => {
-        if (!profile || !senderAddress) return;
-
-        // Store tip in Supabase after tx
-        if (txHash) {
-          await supabase.from('tips').insert({
+    // Store tip in Supabase after tx
+    if (txHash) {
+      try {
+        await fetch('/api/tips', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
             senderAddress,
             receiverAddress: profile.creatorAddress,
             amount: tipAmount,
             currency: 'USDC',
             message,
-            timestamp: new Date().toISOString(),
             transactionHash: txHash,
-          });
-          setMessage('');
-          setAmount('');
-          setCustomAmount(false);
-          setTxHash(undefined);
-        }
-      };
-
-      const calls = (tipAmount: number) => [{
-        to: USDC_ADDRESS as `0x${string}`,
-        data: encodeFunctionData({
-          abi: [{ inputs: [{ name: 'to', type: 'address' }, { name: 'value', type: 'uint256' }], name: 'transfer', outputs: [{ name: '', type: 'bool' }], stateMutability: 'nonpayable', type: 'function' }],
-          functionName: 'transfer',
-          args: [profile?.creatorAddress as `0x${string}`, parseUnits(tipAmount.toString(), USDC_DECIMALS)],
-        }),
-      }];
-
-      const preSetAmounts = [1, 5, 10];
-
-      if (loading) {
-        return (
-          <main className="flex min-h-screen flex-col px-4 py-6 bg-bg">
-            <Typography variant="body">Loading creator profile...</Typography>
-          </main>
-        );
+          }),
+        });
+        
+        setMessage('');
+        setAmount('');
+        setCustomAmount(false);
+        setTxHash(undefined);
+        setTipSent(true);
+        
+        // Reset tip sent message after 3 seconds
+        setTimeout(() => setTipSent(false), 3000);
+      } catch (error) {
+        console.error('Error recording tip:', error);
       }
+    }
+  };
 
-      return (
-        <main className="flex min-h-screen flex-col px-4 py-6 bg-bg">
-          {profile ? (
+  const calls = (tipAmount: number) => [
+    createUSDCTransferCall(profile?.creatorAddress as `0x${string}`, tipAmount)
+  ];
+
+  const preSetAmounts = [1, 5, 10];
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen flex-col px-4 py-6 bg-bg">
+        <Typography variant="body">Loading creator profile...</Typography>
+      </main>
+    );
+  }
+
+  return (
+    <main className="flex min-h-screen flex-col px-4 py-6 bg-bg">
+      {profile ? (
+        <>
+          <div className="flex items-center mb-lg">
+            <Avatar address={profile.creatorAddress as `0x${string}`} />
+            <div className="ml-md">
+              <Typography variant="heading1">{profile.displayName}</Typography>
+              <Typography variant="body">{profile.bio}</Typography>
+            </div>
+          </div>
+          
+          {!isConnected ? (
+            <Card className="mb-md">
+              <Typography variant="body" className="mb-md">Connect your wallet to send a tip</Typography>
+              <Button onClick={() => router.push('/')}>Connect Wallet</Button>
+            </Card>
+          ) : (
             <>
-              <div className="flex items-center mb-lg">
-                <Avatar address={profile.creatorAddress as `0x${string}`} />
-                <div className="ml-md">
-                  <Typography variant="heading1">{profile.displayName}</Typography>
-                  <Typography variant="body">{profile.bio}</Typography>
-                </div>
-              </div>
               <Typography variant="heading1" className="mb-md">Send a Tip</Typography>
               <Card className="mb-md">
+                {tipSent && (
+                  <div className="bg-accent bg-opacity-20 text-accent p-md rounded-md mb-md">
+                    <Typography variant="body">Tip sent successfully! Thank you for your support.</Typography>
+                  </div>
+                )}
+                
                 <div className="space-y-md">
                   {preSetAmounts.map((amt, index) => (
                     <Transaction
@@ -117,9 +147,15 @@
                     </Transaction>
                   ))}
                 </div>
-                <Button variant="secondary" onClick={() => setCustomAmount(!customAmount)} className="mb-md w-full">
-                  Custom Amount
+                
+                <Button 
+                  variant="secondary" 
+                  onClick={() => setCustomAmount(!customAmount)} 
+                  className="mb-md w-full mt-md"
+                >
+                  {customAmount ? 'Hide Custom Amount' : 'Custom Amount'}
                 </Button>
+                
                 {customAmount && (
                   <div className="space-y-md">
                     <Input
@@ -148,19 +184,29 @@
                     )}
                   </div>
                 )}
-                <Input
-                  variant="textarea"
-                  placeholder="Personalized message (optional)"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  className="mt-md w-full"
-                />
+                
+                <div className="mt-md">
+                  <Typography variant="body" className="mb-xs">Add a personal message (optional)</Typography>
+                  <Input
+                    variant="textarea"
+                    placeholder="Your message to the creator..."
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
               </Card>
             </>
-          ) : (
-            <Typography variant="body">Creator not found.</Typography>
           )}
-        </main>
-      );
-    }
-  
+        </>
+      ) : (
+        <div className="text-center">
+          <Typography variant="heading1" className="mb-md">Creator Not Found</Typography>
+          <Typography variant="body" className="mb-lg">The creator profile you're looking for doesn't exist.</Typography>
+          <Button onClick={() => router.push('/')}>Go Home</Button>
+        </div>
+      )}
+    </main>
+  );
+}
+
