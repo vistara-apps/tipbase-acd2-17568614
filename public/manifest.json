@@ -1,0 +1,14 @@
+{
+  "name": "TipBase",
+  "description": "TipBase is a Base Mini App built with Zara.",
+  "image": "https://dummyimage.com/1200x628/0a0b0d/ffffff.png&text=OG",
+  "external_url": "https://acd2fbc1-ad6f-462f-9d2e-9054e729e46c.vistara.dev",
+  "properties": {
+    "app": {
+      "name": "TipBase",
+      "description": "TipBase is a Base Mini App built with Zara.",
+      "url": "https://acd2fbc1-ad6f-462f-9d2e-9054e729e46c.vistara.dev",
+      "icon": "https://0co.to/images/zara-2.png"
+    }
+  }
+}
